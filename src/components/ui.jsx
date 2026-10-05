@@ -10,7 +10,7 @@ export function Logo() {
   );
 }
 
-const NAV = [['home', 'Home'], ['units', 'Units'], ['history', 'Quiz History'], ['about', 'About']];
+const NAV = [['home', 'Home'], ['units', 'Units'], ['leaderboard', 'Leaderboard'], ['history', 'My History'], ['about', 'About']];
 
 export function Header({ view, nav, theme, toggleTheme, name }) {
   const [open, setOpen] = useState(false);
@@ -26,7 +26,13 @@ export function Header({ view, nav, theme, toggleTheme, name }) {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          {name && <span className="chip hidden sm:inline-flex"><User size={13} />{name}</span>}
+          {name && (
+            <button onClick={() => go('leaderboard')} className="chip hidden sm:inline-flex cursor-pointer transition hover:border-blue-400 hover:bg-blue-50/50 dark:hover:border-cyan-400 dark:hover:bg-white/5" title="View your standings on the Leaderboard">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <User size={13} />
+              <span className="font-semibold">{name}</span>
+            </button>
+          )}
           <button className="btn btn-ghost !p-2.5" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
             {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
           </button>

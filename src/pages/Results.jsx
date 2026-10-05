@@ -10,7 +10,7 @@ const STATUS = {
   unanswered: { label: 'UNANSWERED', Icon: Minus, cls: 'border-slate-300 bg-slate-100/60 text-slate-600 dark:border-white/15 dark:bg-white/5 dark:text-slate-300' },
 };
 
-export default function Results({ record, onRetake, onHistory }) {
+export default function Results({ record, onRetake, onHistory, onLeaderboard }) {
   const [filter, setFilter] = useState('all');
   const ev = useMemo(() => evaluate(record.items), [record]);
   const high = ev.pct >= 80;
@@ -31,6 +31,7 @@ export default function Results({ record, onRetake, onHistory }) {
             <div className="mt-6 font-mono text-4xl font-bold">{ev.correct} <span className="text-slate-400">/ {ev.total}</span></div>
             <div className="mt-6 flex flex-wrap gap-3">
               <button className="btn btn-primary" onClick={() => onRetake(record)}><RotateCcw size={15} /> RETAKE QUIZ</button>
+              <button className="btn btn-ghost" onClick={onLeaderboard}><Trophy size={15} className="text-amber-500" /> Leaderboard</button>
               <button className="btn btn-ghost" onClick={onHistory}><HistoryIcon size={15} /> Quiz history</button>
             </div>
           </div>

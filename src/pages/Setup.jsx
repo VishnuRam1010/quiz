@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, ClipboardList, Layers, BookOpen, Shuffle, Timer, CheckCircle2 } from 'lucide-react';
+import { Play, ClipboardList, Layers, BookOpen, Shuffle, Timer, CheckCircle2, User } from 'lucide-react';
 import { units } from '../data/questions';
 
 const MODES = [['full', 'Full Quiz', ClipboardList, 'All 50 questions, timed.'], ['unit', 'Unit-wise Quiz', Layers, 'Focus on one unit.'], ['practice', 'Practice Mode', BookOpen, 'Check each answer as you go.']];
@@ -16,8 +16,9 @@ function Toggle({ on, onChange, label, icon: Icon }) {
   );
 }
 
-export default function Setup({ name, setName, settings, setSettings, onStart, onBack }) {
+export default function Setup({ name, setName, users = {}, settings, setSettings, onStart, onBack }) {
   const [err, setErr] = useState('');
+  const userList = Object.values(users);
   const set = (p) => setSettings((s) => ({ ...s, ...p }));
   const chooseMode = (mode) => {
     const unit = mode === 'full' ? 'all' : settings.unit;
@@ -35,10 +36,33 @@ export default function Setup({ name, setName, settings, setSettings, onStart, o
       <p className="eyebrow">Quiz setup</p>
       <h1 className="mt-1 text-3xl font-bold">Set up your quiz</h1>
       <div className="card mt-6 p-5 sm:p-6">
-        <label htmlFor="name" className="text-sm font-semibold">Enter your name</label>
+        <label htmlFor="name" className="text-sm font-semibold">Enter your name / student profile</label>
         <input id="name" className="input mt-2" value={name} maxLength={40} autoComplete="given-name" placeholder="e.g. Vishnu"
           onChange={(e) => { setName(e.target.value); setErr(''); }} aria-invalid={!!err} aria-describedby={err ? 'name-err' : undefined} />
         {err && <p id="name-err" role="alert" className="mt-2 text-sm text-rose-500">{err}</p>}
+
+        {userList.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/10">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Or select registered student:</span>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {userList.map((u) => (
+                <button
+                  key={u.name}
+                  type="button"
+                  onClick={() => { setName(u.name); setErr(''); }}
+                  className={`chip transition cursor-pointer ${
+                    name.trim().toLowerCase() === u.name.toLowerCase()
+                      ? '!border-blue-600 !bg-blue-50 text-blue-700 ring-2 ring-blue-600/30 dark:!border-cyan-400 dark:!bg-cyan-400/10 dark:text-cyan-300'
+                      : 'hover:border-slate-400'
+                  }`}
+                >
+                  <User size={12} />
+                  <span className="font-semibold">{u.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-widest text-slate-500">Quiz mode</h2>

@@ -1,4 +1,4 @@
-import { ArrowRight, Layers, Sigma, Database, Table2, LineChart, Network } from 'lucide-react';
+import { ArrowRight, Layers, Sigma, Database, Table2, LineChart, Network, Trophy } from 'lucide-react';
 import { units } from '../data/questions';
 
 const ICONS = [Network, Database, Sigma, Table2, LineChart];
@@ -31,7 +31,7 @@ function HeroVisual() {
   );
 }
 
-export default function Home({ onStart, onUnit }) {
+export default function Home({ onStart, onUnit, onLeaderboard }) {
   return (
     <div className="animate-rise">
       <section className="relative overflow-hidden">
@@ -43,6 +43,7 @@ export default function Home({ onStart, onUnit }) {
             <p className="mt-5 max-w-xl text-base text-slate-600 dark:text-slate-300 sm:text-lg">Test your understanding of Data Science, Big Data, NumPy, Pandas, Data Manipulation, and Visualization.</p>
             <div className="mt-7 flex flex-wrap gap-3">
               <button className="btn btn-primary !px-6 !py-3.5" onClick={() => onStart()}>START QUIZ <ArrowRight size={16} /></button>
+              <button className="btn btn-ghost !px-6 !py-3.5" onClick={onLeaderboard}><Trophy size={16} className="text-amber-500" /> LEADERBOARD</button>
               <button className="btn btn-ghost !px-6 !py-3.5" onClick={() => document.getElementById('units')?.scrollIntoView({ behavior: 'smooth' })}>EXPLORE UNITS</button>
             </div>
             <dl className="mt-10 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">

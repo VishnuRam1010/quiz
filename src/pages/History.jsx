@@ -3,19 +3,53 @@ import { Trash2, Eye, Trophy, BarChart3, Hash } from 'lucide-react';
 import { Modal } from '../components/ui';
 import { evaluate, fmtDate, fmtTime } from '../utils/quizUtils';
 
-export default function History({ history, onView, onClear, onStart }) {
+export default function History({ history, activeUser = '', onView, onClear, onStart }) {
   const [confirm, setConfirm] = useState(false);
-  const rows = history.map((h) => ({ h, ev: evaluate(h.items) }));
+  const [filterUser, setFilterUser] = useState(activeUser ? 'my' : 'all'); // 'my' | 'all'
+  const filteredHistory = filterUser === 'my' && activeUser
+    ? history.filter((h) => (h.name || '').trim().toLowerCase() === activeUser.trim().toLowerCase())
+    : history;
+  const rows = filteredHistory.map((h) => ({ h, ev: evaluate(h.items) }));
   const best = rows.length ? Math.max(...rows.map((r) => r.ev.pct)) : 0;
   const avg = rows.length ? Math.round(rows.reduce((a, r) => a + r.ev.pct, 0) / rows.length) : 0;
   return (
     <div className="mx-auto max-w-4xl animate-rise px-4 py-10 sm:px-6">
-      <p className="eyebrow">Your progress</p>
-      <h1 className="mt-1 text-3xl font-bold">QUIZ HISTORY</h1>
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
+          <p className="eyebrow">Your progress</p>
+          <h1 className="mt-1 text-3xl font-bold">QUIZ HISTORY</h1>
+        </div>
+        {activeUser && history.length > 0 && (
+          <div className="flex rounded-xl border border-slate-200 p-1 dark:border-white/10">
+            <button
+              onClick={() => setFilterUser('my')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                filterUser === 'my'
+                  ? 'bg-blue-600 text-white dark:bg-cyan-400 dark:text-navy-950'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
+              }`}
+            >
+              My Attempts ({activeUser})
+            </button>
+            <button
+              onClick={() => setFilterUser('all')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                filterUser === 'all'
+                  ? 'bg-blue-600 text-white dark:bg-cyan-400 dark:text-navy-950'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
+              }`}
+            >
+              All Students ({history.length})
+            </button>
+          </div>
+        )}
+      </div>
       {rows.length === 0 ? (
         <div className="card mt-6 p-10 text-center">
           <BarChart3 className="mx-auto text-slate-400" size={36} />
-          <h2 className="mt-3 text-lg font-semibold">No quiz history yet.</h2>
+          <h2 className="mt-3 text-lg font-semibold">
+            {filterUser === 'my' ? `No attempts for ${activeUser} yet.` : 'No quiz history yet.'}
+          </h2>
           <p className="mt-1 text-sm text-slate-500">Your completed quizzes will appear here.</p>
           <button className="btn btn-primary mt-5" onClick={onStart}>START YOUR FIRST QUIZ</button>
         </div>
