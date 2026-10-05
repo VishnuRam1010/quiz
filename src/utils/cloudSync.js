@@ -6,7 +6,7 @@ import {
   saveStoredFirebaseConfig,
   deleteAttemptFromFirestore,
   deleteUserFromFirestore,
-} from './firebase';
+} from './firebase.js';
 
 const ROOM_STORAGE_KEY = 'classroom_room_id';
 export const DEFAULT_ROOM = 'datascience-class-2025';
@@ -24,7 +24,11 @@ function getInitialRoom() {
       }
     }
   }
-  return localStorage.getItem(ROOM_STORAGE_KEY) || DEFAULT_ROOM;
+  try {
+    return (typeof localStorage !== 'undefined' ? localStorage.getItem(ROOM_STORAGE_KEY) : null) || DEFAULT_ROOM;
+  } catch {
+    return DEFAULT_ROOM;
+  }
 }
 
 let currentRoom = getInitialRoom();
@@ -67,22 +71,134 @@ export function getSyncInfo() {
   };
 }
 
+const DELETED_RECORDS_KEY = 'classroom_deleted_records';
+const DELETED_USERS_KEY = 'classroom_deleted_users';
+const CLEARED_AT_KEY = 'classroom_cleared_at';
+
+export function getDeletedRecordIds() {
+  try {
+    const raw = localStorage.getItem(DELETED_RECORDS_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function getDeletedUsers() {
+  try {
+    const raw = localStorage.getItem(DELETED_USERS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getClearedAt() {
+  try {
+    return Number(localStorage.getItem(CLEARED_AT_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function markRecordDeleted(recordId) {
+  if (!recordId) return;
+  const set = getDeletedRecordIds();
+  set.add(recordId);
+  try {
+    localStorage.setItem(DELETED_RECORDS_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+
+  try {
+    const rawH = localStorage.getItem('history');
+    if (rawH) {
+      const hList = JSON.parse(rawH);
+      if (Array.isArray(hList)) {
+        const filtered = hList.filter((item) => item?.id !== recordId);
+        localStorage.setItem('history', JSON.stringify(filtered));
+      }
+    }
+  } catch {}
+}
+
+export function markUserDeleted(userName, timestamp = Date.now()) {
+  if (!userName) return;
+  const clean = userName.trim().toLowerCase();
+  const users = getDeletedUsers();
+  users[clean] = timestamp;
+  try {
+    localStorage.setItem(DELETED_USERS_KEY, JSON.stringify(users));
+  } catch {}
+
+  try {
+    const rawH = localStorage.getItem('history');
+    if (rawH) {
+      const hList = JSON.parse(rawH);
+      if (Array.isArray(hList)) {
+        const filtered = hList.filter((item) => (item?.name || '').trim().toLowerCase() !== clean);
+        localStorage.setItem('history', JSON.stringify(filtered));
+      }
+    }
+    const rawU = localStorage.getItem('users');
+    if (rawU) {
+      const uMap = JSON.parse(rawU);
+      if (uMap && typeof uMap === 'object') {
+        Object.keys(uMap).forEach((k) => {
+          if (k.trim().toLowerCase() === clean) delete uMap[k];
+        });
+        localStorage.setItem('users', JSON.stringify(uMap));
+      }
+    }
+  } catch {}
+}
+
+export function markBoardCleared(timestamp = Date.now()) {
+  try {
+    localStorage.setItem(CLEARED_AT_KEY, String(timestamp));
+    localStorage.setItem('history', JSON.stringify([]));
+    localStorage.setItem('users', JSON.stringify({}));
+  } catch {}
+}
+
+export function isRecordDeleted(rec) {
+  if (!rec) return true;
+  const deletedIds = getDeletedRecordIds();
+  if (rec.id && deletedIds.has(rec.id)) return true;
+
+  const deletedUsers = getDeletedUsers();
+  const cleanName = (rec.name || '').trim().toLowerCase();
+  if (cleanName && deletedUsers[cleanName]) {
+    return true;
+  }
+
+  const clearedAt = getClearedAt();
+  if (clearedAt > 0) {
+    const recTime = rec.date ? new Date(rec.date).getTime() : 0;
+    // Allow up to 10 minutes clock drift; anything recorded before or around clear is deleted
+    if (!recTime || recTime <= clearedAt + 10 * 60 * 1000) return true;
+  }
+
+  return false;
+}
+
 /**
- * Deduplicate and merge history records
+ * Deduplicate and merge history records, strictly discarding deleted records
  */
 export function mergeRecords(localHistory = [], cloudHistory = []) {
   const map = new Map();
 
-  // First insert cloud history
+  // First insert cloud history (filtering out any deleted records)
   cloudHistory.forEach((item) => {
     if (!item || !item.name) return;
+    if (isRecordDeleted(item)) return;
     const key = item.id || `${item.name}-${item.date}-${item.seconds}`;
     map.set(key, item);
   });
 
-  // Then merge local history (local takes precedence if matching id)
+  // Then merge local history (filtering out any deleted records)
   localHistory.forEach((item) => {
     if (!item || !item.name) return;
+    if (isRecordDeleted(item)) return;
     const key = item.id || `${item.name}-${item.date}-${item.seconds}`;
     map.set(key, item);
   });
@@ -159,8 +275,22 @@ export async function publishAttemptToCloud(rec) {
 /**
  * Broadcast an admin deletion so all connected classmates' screens immediately purge the record
  */
-export async function publishAdminDelete({ userName, recordId, clearAll }) {
+export async function publishAdminDelete({ userName, recordId, clearAll, timestamp = Date.now() }) {
   let success = false;
+
+  // Immediately record in local tombstone registry so local client never resurrects it
+  if (clearAll) {
+    markBoardCleared(timestamp);
+  }
+  if (userName) {
+    markUserDeleted(userName, timestamp);
+  }
+  if (recordId) {
+    markRecordDeleted(recordId);
+  }
+
+  // Immediately notify local subscribers so current admin UI updates synchronously
+  notifyAdminDelete({ userName, recordId, clearAll, timestamp });
 
   // 1. Delete in Firestore if active
   if (isFirebaseConfigured()) {
@@ -188,7 +318,7 @@ export async function publishAdminDelete({ userName, recordId, clearAll }) {
         userName: userName || null,
         recordId: recordId || null,
         clearAll: !!clearAll,
-        timestamp: Date.now(),
+        timestamp,
       }),
     });
     if (res.ok) success = true;
@@ -238,7 +368,7 @@ function notifyAdminDelete(payload) {
 }
 
 /**
- * Poll cloud relay for all cached attempts
+ * Poll cloud relay for all cached attempts, strictly filtering out deleted records
  */
 export async function fetchCloudRelayRecords() {
   try {
@@ -259,17 +389,34 @@ export async function fetchCloudRelayRecords() {
       .split('\n')
       .filter(Boolean);
 
+    // Pass 1: Parse all admin_delete commands first to update tombstones & notify
+    lines.forEach((line) => {
+      try {
+        const item = JSON.parse(line);
+        if (item.event === 'message' && item.message) {
+          const payload = typeof item.message === 'string' ? JSON.parse(item.message) : item.message;
+          if (payload && payload.type === 'admin_delete') {
+            const ts = payload.timestamp || Date.now();
+            if (payload.clearAll) markBoardCleared(ts);
+            if (payload.userName) markUserDeleted(payload.userName, ts);
+            if (payload.recordId) markRecordDeleted(payload.recordId);
+            notifyAdminDelete(payload);
+          }
+        }
+      } catch (e) {}
+    });
+
+    // Pass 2: Filter and collect valid, non-deleted records
     const records = [];
     lines.forEach((line) => {
       try {
         const item = JSON.parse(line);
         if (item.event === 'message' && item.message) {
-          const payload = JSON.parse(item.message);
-          if (payload.record && payload.record.name) {
-            records.push(payload.record);
-          } else if (payload.name && payload.items) {
-            // direct record format
-            records.push(payload);
+          const payload = typeof item.message === 'string' ? JSON.parse(item.message) : item.message;
+          if (!payload || payload.type === 'admin_delete') return; // ignore delete messages in records
+          const rec = payload.record && payload.record.name ? payload.record : (payload.name && payload.items ? payload : null);
+          if (rec && !isRecordDeleted(rec)) {
+            records.push(rec);
           }
         }
       } catch (e) {
@@ -312,13 +459,17 @@ function connectEventSource() {
       try {
         const item = JSON.parse(event.data);
         if (item.event === 'message' && item.message) {
-          const payload = JSON.parse(item.message);
-          if (payload.type === 'admin_delete') {
+          const payload = typeof item.message === 'string' ? JSON.parse(item.message) : item.message;
+          if (payload && payload.type === 'admin_delete') {
+            const ts = payload.timestamp || Date.now();
+            if (payload.clearAll) markBoardCleared(ts);
+            if (payload.userName) markUserDeleted(payload.userName, ts);
+            if (payload.recordId) markRecordDeleted(payload.recordId);
             notifyAdminDelete(payload);
             return;
           }
           const rec = payload.record || (payload.name && payload.items ? payload : null);
-          if (rec) {
+          if (rec && !isRecordDeleted(rec)) {
             notifyNewPlayer(rec);
             notifyListeners([rec]);
           }

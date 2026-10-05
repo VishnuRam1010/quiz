@@ -1,4 +1,4 @@
-import { questions, answerKey, units } from '../data/questions';
+import { questions, answerKey, units } from '../data/questions.js';
 
 export const LETTERS = ['A', 'B', 'C', 'D'];
 const byId = Object.fromEntries(questions.map((q) => [q.id, q]));

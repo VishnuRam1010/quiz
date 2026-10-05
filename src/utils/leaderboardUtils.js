@@ -1,6 +1,7 @@
-import { evaluate } from './quizUtils';
-import { load, save } from './storage';
-import { questions, answerKey } from '../data/questions';
+import { evaluate } from './quizUtils.js';
+import { load, save } from './storage.js';
+import { questions, answerKey } from '../data/questions.js';
+import { getDeletedUsers, isRecordDeleted, markUserDeleted, markRecordDeleted } from './cloudSync.js';
 
 const USERS_KEY = 'users';
 
@@ -29,23 +30,37 @@ export function getInitials(name = '') {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-/** Load all registered users, auto-merging any users discovered in history */
+/** Load all registered users, auto-merging any users discovered in history, pruning deleted ones */
 export function loadUsers(history = []) {
   const stored = load(USERS_KEY, {});
   const users = { ...stored };
+  const deletedUsers = typeof getDeletedUsers === 'function' ? getDeletedUsers() : {};
 
-  // Ensure any user in history is registered
+  // Prune any deleted users from registry
+  Object.keys(users).forEach((k) => {
+    const clean = k.trim().toLowerCase();
+    if (deletedUsers[clean]) {
+      delete users[k];
+    }
+  });
+
+  // Ensure any active non-deleted user in history is registered
   if (Array.isArray(history)) {
     history.forEach((h) => {
+      if (!h || !h.name) return;
+      if (typeof isRecordDeleted === 'function' && isRecordDeleted(h)) return;
       const uName = (h.name || '').trim();
-      if (uName && !users[uName]) {
+      const clean = uName.toLowerCase();
+      if (deletedUsers[clean]) return;
+
+      if (!users[uName]) {
         users[uName] = {
           name: uName,
           createdAt: h.date || new Date().toISOString(),
           lastActive: h.date || new Date().toISOString(),
           color: getAvatarGradient(uName),
         };
-      } else if (uName && users[uName]) {
+      } else if (users[uName]) {
         if (h.date && (!users[uName].lastActive || new Date(h.date) > new Date(users[uName].lastActive))) {
           users[uName].lastActive = h.date;
         }
@@ -80,18 +95,32 @@ export function registerUser(name, existingUsers = {}) {
 }
 
 export function deleteUser(name, users = {}, history = []) {
+  const target = (name || '').trim().toLowerCase();
+  if (typeof markUserDeleted === 'function') {
+    markUserDeleted(name);
+  }
+
   const nextUsers = { ...users };
-  delete nextUsers[name];
+  Object.keys(nextUsers).forEach((k) => {
+    if (k.trim().toLowerCase() === target) {
+      delete nextUsers[k];
+    }
+  });
   saveUsers(nextUsers);
 
-  const nextHistory = history.filter((h) => (h.name || '').trim().toLowerCase() !== name.trim().toLowerCase());
+  const nextHistory = (history || []).filter(
+    (h) => (h.name || '').trim().toLowerCase() !== target
+  );
   save('history', nextHistory);
 
   return { users: nextUsers, history: nextHistory };
 }
 
 export function deleteRecord(recordId, history = [], users = {}) {
-  const nextHistory = history.filter((h) => h.id !== recordId);
+  if (typeof markRecordDeleted === 'function') {
+    markRecordDeleted(recordId);
+  }
+  const nextHistory = (history || []).filter((h) => h.id !== recordId);
   save('history', nextHistory);
 
   const nextUsers = loadUsers(nextHistory);
@@ -103,9 +132,14 @@ export function deleteRecord(recordId, history = [], users = {}) {
 /** Compute aggregated leaderboard stats from history and user registry */
 export function getLeaderboard(history = [], users = {}, filter = { mode: 'all', unit: 'all' }, search = '') {
   const userMap = {};
+  const deletedUsers = typeof getDeletedUsers === 'function' ? getDeletedUsers() : {};
 
-  // Initialize with all registered users
-  Object.values(users).forEach((u) => {
+  // Initialize with all registered users (strictly skipping any deleted ones)
+  Object.values(users || {}).forEach((u) => {
+    if (!u || !u.name) return;
+    const clean = u.name.trim().toLowerCase();
+    if (deletedUsers[clean]) return;
+
     userMap[u.name] = {
       name: u.name,
       createdAt: u.createdAt,
@@ -125,9 +159,14 @@ export function getLeaderboard(history = [], users = {}, filter = { mode: 'all',
     };
   });
 
-  // Aggregate user records matching filters
-  history.forEach((rec) => {
+  // Aggregate user records matching filters (strictly skipping deleted records or deleted users)
+  (history || []).forEach((rec) => {
+    if (!rec || !rec.name) return;
+    if (typeof isRecordDeleted === 'function' && isRecordDeleted(rec)) return;
     const uName = (rec.name || 'Student').trim();
+    const clean = uName.toLowerCase();
+    if (deletedUsers[clean]) return;
+
     if (!userMap[uName]) {
       userMap[uName] = {
         name: uName,

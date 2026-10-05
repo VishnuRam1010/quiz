@@ -18,6 +18,10 @@ import {
   fetchCloudRelayRecords,
   getSyncInfo,
   setRoomId,
+  isRecordDeleted,
+  markUserDeleted,
+  markRecordDeleted,
+  markBoardCleared,
 } from './utils/cloudSync';
 
 const DEFAULTS = { mode: 'full', unit: 'all', randomQ: false, randomO: false, timerOn: true, minutes: 30, instantFeedback: true };
@@ -27,8 +31,16 @@ export default function App() {
   const [name, setName] = useState(() => load('name', ''));
   const [settings, setSettings] = useState(() => ({ ...DEFAULTS, ...load('settings', {}) }));
   const [theme, setTheme] = useState(() => (load('theme', 'dark') === 'light' ? 'light' : 'dark'));
-  const [history, setHistory] = useState(() => { const h = load('history', []); return Array.isArray(h) ? h : []; });
-  const [users, setUsers] = useState(() => loadUsers(load('history', [])));
+  const [history, setHistory] = useState(() => {
+    const h = load('history', []);
+    const arr = Array.isArray(h) ? h : [];
+    return arr.filter((x) => !isRecordDeleted(x));
+  });
+  const [users, setUsers] = useState(() => {
+    const h = load('history', []);
+    const arr = Array.isArray(h) ? h : [];
+    return loadUsers(arr.filter((x) => !isRecordDeleted(x)));
+  });
   const [result, setResult] = useState(() => load('last', null));
   const [session, setSession] = useState(null);
   const [cloudSyncInfo, setCloudSyncInfo] = useState(() => getSyncInfo());
@@ -53,35 +65,49 @@ export default function App() {
     const unsub = initCloudSync(
       ({ status, room, mode, records }) => {
         setCloudSyncInfo({ status, room, mode });
-        if (Array.isArray(records) && records.length) {
-          setHistory((prev) => {
-            const merged = mergeRecords(prev, records);
-            setUsers(loadUsers(merged));
-            return merged;
-          });
-        }
+        setHistory((prev) => {
+          const cleanPrev = (prev || []).filter((h) => !isRecordDeleted(h));
+          const cleanRecords = (records || []).filter((h) => !isRecordDeleted(h));
+          const merged = mergeRecords(cleanPrev, cleanRecords);
+          const nextU = loadUsers(merged);
+          setUsers(nextU);
+          save('history', merged);
+          saveUsers(nextU);
+          return merged;
+        });
       },
       (newRec) => {
-        if (newRec?.name && newRec.name.toLowerCase() !== name.trim().toLowerCase()) {
+        if (newRec?.name && !isRecordDeleted(newRec) && newRec.name.toLowerCase() !== name.trim().toLowerCase()) {
           setLiveAlert(newRec);
           setTimeout(() => setLiveAlert(null), 8000);
         }
       },
       (deletePayload) => {
         if (deletePayload?.clearAll) {
+          markBoardCleared(deletePayload.timestamp || Date.now());
           setHistory([]);
           setUsers({});
+          save('history', []);
+          saveUsers({});
         } else if (deletePayload?.userName) {
           const target = deletePayload.userName.trim().toLowerCase();
+          markUserDeleted(deletePayload.userName, deletePayload.timestamp || Date.now());
           setHistory((prev) => {
-            const nextH = prev.filter((h) => (h.name || '').trim().toLowerCase() !== target);
-            setUsers(loadUsers(nextH));
+            const nextH = prev.filter((h) => !isRecordDeleted(h) && (h.name || '').trim().toLowerCase() !== target);
+            save('history', nextH);
+            const nextU = loadUsers(nextH);
+            setUsers(nextU);
+            saveUsers(nextU);
             return nextH;
           });
         } else if (deletePayload?.recordId) {
+          markRecordDeleted(deletePayload.recordId);
           setHistory((prev) => {
-            const nextH = prev.filter((h) => h.id !== deletePayload.recordId);
-            setUsers(loadUsers(nextH));
+            const nextH = prev.filter((h) => !isRecordDeleted(h) && h.id !== deletePayload.recordId);
+            save('history', nextH);
+            const nextU = loadUsers(nextH);
+            setUsers(nextU);
+            saveUsers(nextU);
             return nextH;
           });
         }
@@ -186,13 +212,16 @@ export default function App() {
       liveAlert={liveAlert}
       onSyncNow={async () => {
         const records = await fetchCloudRelayRecords();
-        if (records && records.length) {
-          setHistory((prev) => {
-            const merged = mergeRecords(prev, records);
-            setUsers(loadUsers(merged));
-            return merged;
-          });
-        }
+        setHistory((prev) => {
+          const cleanPrev = (prev || []).filter((h) => !isRecordDeleted(h));
+          const cleanRecords = (records || []).filter((h) => !isRecordDeleted(h));
+          const merged = mergeRecords(cleanPrev, cleanRecords);
+          const nextU = loadUsers(merged);
+          setUsers(nextU);
+          save('history', merged);
+          saveUsers(nextU);
+          return merged;
+        });
         return records;
       }}
       onChangeRoom={(newRoom) => {

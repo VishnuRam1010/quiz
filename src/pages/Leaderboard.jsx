@@ -50,6 +50,9 @@ import {
   getFirebaseConfig,
   isFirebaseConfigured,
   publishAdminDelete,
+  markUserDeleted,
+  markRecordDeleted,
+  markBoardCleared,
   DEFAULT_ROOM,
 } from '../utils/cloudSync';
 
@@ -246,6 +249,7 @@ export default function Leaderboard({
       setLoginModal(true);
       return;
     }
+    markUserDeleted(uName);
     const res = deleteUser(uName, users, history);
     onUpdateUsers(res.users);
     onUpdateHistory(res.history);
@@ -261,6 +265,7 @@ export default function Leaderboard({
       setLoginModal(true);
       return;
     }
+    markRecordDeleted(attemptId);
     const res = deleteRecord(attemptId, history, users);
     onUpdateHistory(res.history);
     onUpdateUsers(res.users);
@@ -301,6 +306,7 @@ export default function Leaderboard({
       setLoginModal(true);
       return;
     }
+    markBoardCleared();
     onUpdateHistory([]);
     onUpdateUsers({});
     setManageModal(false);
