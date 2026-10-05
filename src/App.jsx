@@ -66,6 +66,25 @@ export default function App() {
           setLiveAlert(newRec);
           setTimeout(() => setLiveAlert(null), 8000);
         }
+      },
+      (deletePayload) => {
+        if (deletePayload?.clearAll) {
+          setHistory([]);
+          setUsers({});
+        } else if (deletePayload?.userName) {
+          const target = deletePayload.userName.trim().toLowerCase();
+          setHistory((prev) => {
+            const nextH = prev.filter((h) => (h.name || '').trim().toLowerCase() !== target);
+            setUsers(loadUsers(nextH));
+            return nextH;
+          });
+        } else if (deletePayload?.recordId) {
+          setHistory((prev) => {
+            const nextH = prev.filter((h) => h.id !== deletePayload.recordId);
+            setUsers(loadUsers(nextH));
+            return nextH;
+          });
+        }
       }
     );
     return () => unsub();

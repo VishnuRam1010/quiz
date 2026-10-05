@@ -4,6 +4,8 @@ import {
   subscribeFirestoreAttempts,
   getFirebaseConfig,
   saveStoredFirebaseConfig,
+  deleteAttemptFromFirestore,
+  deleteUserFromFirestore,
 } from './firebase';
 
 const ROOM_STORAGE_KEY = 'classroom_room_id';
@@ -33,6 +35,7 @@ let syncStatus = 'connecting'; // 'connected' | 'syncing' | 'error' | 'offline'
 let syncMode = 'relay'; // 'firebase' | 'relay'
 const listeners = new Set();
 const newPlayerAlertListeners = new Set();
+const adminDeleteListeners = new Set();
 
 /**
  * Get active room ID
@@ -154,6 +157,49 @@ export async function publishAttemptToCloud(rec) {
 }
 
 /**
+ * Broadcast an admin deletion so all connected classmates' screens immediately purge the record
+ */
+export async function publishAdminDelete({ userName, recordId, clearAll }) {
+  let success = false;
+
+  // 1. Delete in Firestore if active
+  if (isFirebaseConfigured()) {
+    try {
+      if (recordId) await deleteAttemptFromFirestore(recordId);
+      if (userName) await deleteUserFromFirestore(userName, currentRoom);
+      success = true;
+    } catch (e) {
+      console.warn('Firebase admin delete failed:', e);
+    }
+  }
+
+  // 2. Broadcast via Zero-Config Relay so all classmates' screens purge the record
+  try {
+    const topicUrl = `https://ntfy.sh/quiz-room-${encodeURIComponent(currentRoom)}`;
+    const res = await fetch(topicUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Title: 'Admin Record Deleted',
+        Tags: 'wastebasket',
+      },
+      body: JSON.stringify({
+        type: 'admin_delete',
+        userName: userName || null,
+        recordId: recordId || null,
+        clearAll: !!clearAll,
+        timestamp: Date.now(),
+      }),
+    });
+    if (res.ok) success = true;
+  } catch (err) {
+    console.warn('Cloud relay delete broadcast failed:', err);
+  }
+
+  return success;
+}
+
+/**
  * Notify all UI subscribers
  */
 function notifyListeners(records = null) {
@@ -177,6 +223,16 @@ function notifyNewPlayer(record) {
       fn(record);
     } catch (e) {
       console.error('Error notifying new player alert:', e);
+    }
+  });
+}
+
+function notifyAdminDelete(payload) {
+  adminDeleteListeners.forEach((fn) => {
+    try {
+      fn(payload);
+    } catch (e) {
+      console.error('Error notifying admin delete alert:', e);
     }
   });
 }
@@ -257,6 +313,10 @@ function connectEventSource() {
         const item = JSON.parse(event.data);
         if (item.event === 'message' && item.message) {
           const payload = JSON.parse(item.message);
+          if (payload.type === 'admin_delete') {
+            notifyAdminDelete(payload);
+            return;
+          }
           const rec = payload.record || (payload.name && payload.items ? payload : null);
           if (rec) {
             notifyNewPlayer(rec);
@@ -308,9 +368,10 @@ export function reconnect() {
 /**
  * Initialize cloud sync on app start
  */
-export function initCloudSync(onUpdate, onNewPlayerAlert) {
+export function initCloudSync(onUpdate, onNewPlayerAlert, onAdminDelete) {
   if (onUpdate) listeners.add(onUpdate);
   if (onNewPlayerAlert) newPlayerAlertListeners.add(onNewPlayerAlert);
+  if (onAdminDelete) adminDeleteListeners.add(onAdminDelete);
 
   // Initial connection
   reconnect();
@@ -325,6 +386,7 @@ export function initCloudSync(onUpdate, onNewPlayerAlert) {
   return () => {
     if (onUpdate) listeners.delete(onUpdate);
     if (onNewPlayerAlert) newPlayerAlertListeners.delete(onNewPlayerAlert);
+    if (onAdminDelete) adminDeleteListeners.delete(onAdminDelete);
   };
 }
 

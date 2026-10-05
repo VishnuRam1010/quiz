@@ -27,17 +27,29 @@ import {
   Check,
   Settings,
   ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Unlock,
+  LogOut,
+  KeyRound,
   Globe,
   Radio,
 } from 'lucide-react';
 import { Modal, ProgressBar } from '../components/ui';
-import { getLeaderboard, getInitials, deleteUser, generateDemoClassroomData } from '../utils/leaderboardUtils';
+import {
+  getLeaderboard,
+  getInitials,
+  deleteUser,
+  deleteRecord,
+  generateDemoClassroomData,
+} from '../utils/leaderboardUtils';
 import { fmtTime, fmtDate } from '../utils/quizUtils';
 import { units, answerKey } from '../data/questions';
 import {
   saveStoredFirebaseConfig,
   getFirebaseConfig,
   isFirebaseConfigured,
+  publishAdminDelete,
   DEFAULT_ROOM,
 } from '../utils/cloudSync';
 
@@ -62,6 +74,7 @@ export default function Leaderboard({
   const [cloudModal, setCloudModal] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState(null);
+  const [deleteConfirmAttempt, setDeleteConfirmAttempt] = useState(null);
   const [newStudentName, setNewStudentName] = useState('');
   const [msg, setMsg] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -72,6 +85,51 @@ export default function Leaderboard({
     return cfg ? JSON.stringify(cfg, null, 2) : '';
   });
   const [firebaseFeedback, setFirebaseFeedback] = useState('');
+
+  // Admin Panel & Security Password (2006)
+  const ADMIN_PASSWORD = '2006';
+  const ADMIN_AUTH_KEY = 'quiz_admin_authed';
+
+  const [isAdmin, setIsAdmin] = useState(() => {
+    try {
+      return sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [adminModal, setAdminModal] = useState(false);
+  const [loginModal, setLoginModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  const handleAdminLogin = (e) => {
+    e?.preventDefault();
+    if (passwordInput.trim() === ADMIN_PASSWORD) {
+      setIsAdmin(true);
+      try {
+        sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+      } catch {}
+      setLoginModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+      setAdminModal(true);
+      setMsg('Admin access granted! Password verified (2006).');
+      setTimeout(() => setMsg(''), 4000);
+    } else {
+      setPasswordError('Invalid security password. Access denied.');
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdmin(false);
+    try {
+      sessionStorage.removeItem(ADMIN_AUTH_KEY);
+    } catch {}
+    setAdminModal(false);
+    setMsg('Logged out from Admin Mode.');
+    setTimeout(() => setMsg(''), 3000);
+  };
 
   const handleSyncNow = async () => {
     setSyncing(true);
@@ -184,12 +242,35 @@ export default function Leaderboard({
   };
 
   const handleDeleteUser = (uName) => {
+    if (!isAdmin) {
+      setLoginModal(true);
+      return;
+    }
     const res = deleteUser(uName, users, history);
     onUpdateUsers(res.users);
     onUpdateHistory(res.history);
     setDeleteConfirmUser(null);
     if (selectedUserDetail?.name === uName) setSelectedUserDetail(null);
-    setMsg(`Removed ${uName} from leaderboard.`);
+    publishAdminDelete({ userName: uName });
+    setMsg(`Admin: Permanently removed student "${uName}" and their quiz records.`);
+    setTimeout(() => setMsg(''), 3500);
+  };
+
+  const handleDeleteAttempt = (attemptId) => {
+    if (!isAdmin) {
+      setLoginModal(true);
+      return;
+    }
+    const res = deleteRecord(attemptId, history, users);
+    onUpdateHistory(res.history);
+    onUpdateUsers(res.users);
+    setDeleteConfirmAttempt(null);
+    if (selectedUserDetail) {
+      const filtered = (selectedUserDetail.records || []).filter((r) => r.id !== attemptId);
+      setSelectedUserDetail({ ...selectedUserDetail, records: filtered });
+    }
+    publishAdminDelete({ recordId: attemptId });
+    setMsg('Admin: Deleted quiz attempt record.');
     setTimeout(() => setMsg(''), 3000);
   };
 
@@ -210,16 +291,23 @@ export default function Leaderboard({
     });
     onUpdateUsers(nextUsers);
     setManageModal(false);
+    setAdminModal(false);
     setMsg('Loaded 6 demo classroom records!');
     setTimeout(() => setMsg(''), 4000);
   };
 
   const handleClearAll = () => {
+    if (!isAdmin) {
+      setLoginModal(true);
+      return;
+    }
     onUpdateHistory([]);
     onUpdateUsers({});
     setManageModal(false);
-    setMsg('Leaderboard cleared.');
-    setTimeout(() => setMsg(''), 3000);
+    setAdminModal(false);
+    publishAdminDelete({ clearAll: true });
+    setMsg('Admin: Reset entire leaderboard and history across all clients.');
+    setTimeout(() => setMsg(''), 3500);
   };
 
   return (
@@ -238,14 +326,51 @@ export default function Leaderboard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <button className="btn btn-ghost" onClick={() => setManageModal(true)}>
-            <SlidersHorizontal size={15} /> Manage Board
-          </button>
+          {isAdmin ? (
+            <div className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-1">
+              <button
+                className="btn !py-1.5 !px-3 text-xs font-bold text-amber-700 dark:text-amber-300"
+                onClick={() => setAdminModal(true)}
+              >
+                <ShieldCheck size={14} className="text-amber-500" />
+                <span>Admin Panel</span>
+              </button>
+              <button
+                className="btn btn-ghost !p-1.5 text-xs text-slate-400 hover:text-rose-500"
+                title="Lock / Log out Admin"
+                onClick={handleAdminLogout}
+              >
+                <LogOut size={13} />
+              </button>
+            </div>
+          ) : (
+            <button className="btn btn-ghost" onClick={() => setLoginModal(true)}>
+              <Lock size={15} className="text-amber-500" /> Admin Panel
+            </button>
+          )}
           <button className="btn btn-primary" onClick={() => onStartQuiz()}>
             <Play size={15} /> Take Quiz
           </button>
         </div>
       </div>
+
+      {/* Admin Mode Active Notice */}
+      {isAdmin && (
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={16} className="text-amber-500 shrink-0" />
+            <span>
+              <b>Admin Mode Active (Password: 2006):</b> You have full authority to delete student records, remove individual quiz attempts, and manage leaderboard scores.
+            </span>
+          </div>
+          <button
+            onClick={handleAdminLogout}
+            className="text-[11px] font-bold underline opacity-80 hover:opacity-100 shrink-0 ml-3"
+          >
+            Exit Admin
+          </button>
+        </div>
+      )}
 
       {/* Live Classroom Alert Toast */}
       {liveAlert && (
@@ -718,13 +843,15 @@ export default function Leaderboard({
                                 <User size={14} />
                               </button>
                             )}
-                            <button
-                              onClick={() => setDeleteConfirmUser(user.name)}
-                              className="btn btn-ghost !p-2 text-xs text-rose-500 hover:text-rose-600"
-                              title="Delete from leaderboard"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => setDeleteConfirmUser(user.name)}
+                                className="btn btn-ghost !p-2 text-xs text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
+                                title="Admin: Delete student & records"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -799,7 +926,7 @@ export default function Leaderboard({
                         </div>
                         <div className="text-slate-500">{fmtDate(r.date)} • {fmtTime(r.seconds)}</div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="font-mono font-bold text-sm">{r.ev.pct}%</span>
                         {onViewRecord && (
                           <button
@@ -808,8 +935,18 @@ export default function Leaderboard({
                               onViewRecord(r);
                             }}
                             className="btn btn-ghost !p-1.5"
+                            title="Review questions"
                           >
                             <Eye size={13} />
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            onClick={() => setDeleteConfirmAttempt({ ...r, name: selectedUserDetail.name })}
+                            className="btn btn-ghost !p-1.5 text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
+                            title="Admin: Delete this attempt"
+                          >
+                            <Trash2 size={13} />
                           </button>
                         )}
                       </div>
@@ -820,6 +957,22 @@ export default function Leaderboard({
                 <p className="text-xs text-slate-500 italic">No completed attempts recorded yet.</p>
               )}
             </div>
+
+            {isAdmin && (
+              <div className="pt-2 border-t border-slate-200 dark:border-white/10 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const toDelete = selectedUserDetail.name;
+                    setSelectedUserDetail(null);
+                    setDeleteConfirmUser(toDelete);
+                  }}
+                  className="btn btn-ghost !py-1 text-xs text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
+                >
+                  <Trash2 size={13} /> Admin: Delete Student & All Attempts
+                </button>
+              </div>
+            )}
 
             <div className="mt-4 flex gap-2">
               <button
@@ -844,37 +997,223 @@ export default function Leaderboard({
       )}
 
       {/* Delete User Confirmation Modal */}
+      {/* Delete User Confirmation Modal */}
       {deleteConfirmUser && (
         <Modal
-          title={`Remove "${deleteConfirmUser}"?`}
+          title={`Admin: Remove "${deleteConfirmUser}"?`}
           onClose={() => setDeleteConfirmUser(null)}
         >
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            This will permanently remove <b>{deleteConfirmUser}</b> and all their quiz records from
-            the leaderboard and history.
-          </p>
-          <div className="mt-6 flex gap-3">
-            <button className="btn btn-ghost flex-1" onClick={() => setDeleteConfirmUser(null)}>
-              Cancel
-            </button>
-            <button
-              className="btn btn-danger flex-1"
-              onClick={() => handleDeleteUser(deleteConfirmUser)}
-            >
-              Delete
-            </button>
+          <div className="mt-2 space-y-3">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              This will permanently remove <b>{deleteConfirmUser}</b> and all their quiz records from
+              the leaderboard and history across all connected classroom devices.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button className="btn btn-ghost flex-1" onClick={() => setDeleteConfirmUser(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger flex-1"
+                onClick={() => handleDeleteUser(deleteConfirmUser)}
+              >
+                Delete Student
+              </button>
+            </div>
           </div>
         </Modal>
       )}
 
-      {/* Manage Board Modal */}
-      {manageModal && (
-        <Modal title="Manage Leaderboard" onClose={() => setManageModal(false)}>
-          <div className="mt-3 space-y-5">
+      {/* Delete Attempt Confirmation Modal */}
+      {deleteConfirmAttempt && (
+        <Modal
+          title="Admin: Delete Quiz Attempt?"
+          onClose={() => setDeleteConfirmAttempt(null)}
+        >
+          <div className="mt-2 space-y-3">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Are you sure you want to delete this specific quiz attempt by <b>{deleteConfirmAttempt.name}</b>?
+            </p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs dark:border-white/10 dark:bg-white/5 space-y-1">
+              <div>Mode: {deleteConfirmAttempt.mode === 'full' ? 'Full 50Q Quiz' : deleteConfirmAttempt.unit}</div>
+              <div>Date: {fmtDate(deleteConfirmAttempt.date)} ({fmtTime(deleteConfirmAttempt.seconds)})</div>
+              <div>Score: {deleteConfirmAttempt.ev?.pct ?? deleteConfirmAttempt.pct}% ({deleteConfirmAttempt.ev?.correct ?? deleteConfirmAttempt.score ?? 0} correct)</div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button className="btn btn-ghost flex-1" onClick={() => setDeleteConfirmAttempt(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger flex-1"
+                onClick={() => handleDeleteAttempt(deleteConfirmAttempt.id)}
+              >
+                Delete Attempt
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Admin Login Modal (Security Password: 2006) */}
+      {loginModal && (
+        <Modal
+          title="Admin Security Access"
+          onClose={() => {
+            setLoginModal(false);
+            setPasswordError('');
+            setPasswordInput('');
+          }}
+        >
+          <div className="mt-2 space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500 text-white shadow">
+                <KeyRound size={20} />
+              </div>
+              <div>
+                <div className="font-bold uppercase tracking-wider">Security Password Required</div>
+                <p className="mt-0.5 opacity-90 leading-relaxed">
+                  Enter the administrator password (<b>2006</b>) to unlock the Admin Panel and delete leaderboard records.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleAdminLogin} className="space-y-3">
+              <div>
+                <label
+                  htmlFor="admin-pass-input"
+                  className="text-xs font-semibold uppercase tracking-wider text-slate-500"
+                >
+                  Admin Security Password
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    id="admin-pass-input"
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setPasswordError('');
+                    }}
+                    placeholder="Enter security password (2006)"
+                    autoFocus
+                    className={`input !py-2.5 !pr-10 text-sm font-mono w-full ${
+                      passwordError ? '!border-rose-500 ring-2 ring-rose-500/20' : ''
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Eye size={15} />
+                  </button>
+                </div>
+                {passwordError && (
+                  <p className="mt-1.5 text-xs font-semibold text-rose-500">{passwordError}</p>
+                )}
+              </div>
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-ghost flex-1"
+                  onClick={() => {
+                    setLoginModal(false);
+                    setPasswordError('');
+                    setPasswordInput('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary flex-1">
+                  <Unlock size={14} /> Unlock Admin Panel
+                </button>
+              </div>
+            </form>
+          </div>
+        </Modal>
+      )}
+
+      {/* Admin Panel Modal */}
+      {adminModal && (
+        <Modal title="🛡️ Classroom Admin Panel" onClose={() => setAdminModal(false)}>
+          <div className="mt-2 space-y-5">
+            {/* Status card */}
+            <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-800 dark:text-emerald-200">
+              <div className="flex items-center gap-2 font-bold">
+                <ShieldCheck size={16} className="text-emerald-500" />
+                <span>Admin Mode Active (Password: 2006 Verified)</span>
+              </div>
+              <button
+                onClick={handleAdminLogout}
+                className="btn btn-ghost !py-1 !px-2 text-xs text-rose-500 hover:text-rose-600"
+              >
+                <LogOut size={12} /> Log Out
+              </button>
+            </div>
+
+            {/* Student Records List with Delete Buttons */}
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Registered Students ({leaderboard.length})
+                </div>
+                <span className="text-[11px] text-slate-400">Delete records from leaderboard</span>
+              </div>
+
+              <div className="mt-2 max-h-60 overflow-y-auto divide-y divide-slate-200 rounded-xl border border-slate-200 dark:divide-white/10 dark:border-white/10">
+                {leaderboard.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-500 italic">
+                    No students currently on the leaderboard.
+                  </div>
+                ) : (
+                  leaderboard.map((u) => (
+                    <div
+                      key={u.name}
+                      className="flex items-center justify-between p-2.5 hover:bg-slate-50 dark:hover:bg-white/5 transition"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br ${u.color} text-white font-mono text-[10px] font-bold`}
+                        >
+                          {getInitials(u.name)}
+                        </div>
+                        <div className="min-w-0 truncate">
+                          <span className="text-xs font-semibold">{u.name}</span>
+                          <span className="ml-2 font-mono text-[11px] text-slate-500">
+                            {u.bestPct > 0 ? `Best: ${u.bestPct}% (${u.bestCorrect}/${u.bestTotal})` : 'No score'} • {u.attempts} attempts
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => {
+                            setAdminModal(false);
+                            setSelectedUserDetail(u);
+                          }}
+                          className="btn btn-ghost !p-1.5 text-xs text-slate-500"
+                          title="View user attempts"
+                        >
+                          <Eye size={13} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmUser(u.name)}
+                          className="btn btn-ghost !p-1.5 text-xs text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
+                          title={`Admin: Delete ${u.name} and all records`}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             {/* Add New Student Form */}
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Register New Student
+                Add Student Profile
               </label>
               <form onSubmit={handleAddStudent} className="mt-1 flex gap-2">
                 <input
@@ -882,37 +1221,37 @@ export default function Leaderboard({
                   value={newStudentName}
                   onChange={(e) => setNewStudentName(e.target.value)}
                   placeholder="Student name (e.g. John Doe)"
-                  className="input !py-2 text-sm flex-1"
+                  className="input !py-1.5 text-xs flex-1"
                 />
-                <button type="submit" className="btn btn-primary">
-                  <Plus size={15} /> Add
+                <button type="submit" className="btn btn-primary !py-1.5 !px-3 text-xs">
+                  <Plus size={14} /> Add
                 </button>
               </form>
             </div>
 
-            {/* Quick Actions */}
-            <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-white/10">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Data Management
+            {/* Quick Actions / Danger Zone */}
+            <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-white/10">
+              <div className="text-xs font-semibold uppercase tracking-wider text-rose-500">
+                Admin Danger Zone
               </div>
               <button
-                onClick={handleLoadDemo}
-                className="btn btn-ghost w-full justify-start text-sm"
+                onClick={handleClearAll}
+                className="btn btn-ghost w-full justify-start text-xs text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
               >
-                <Sparkles size={16} className="text-amber-500" />
-                <span>Load Sample Classroom Data (6 Students)</span>
+                <Trash2 size={14} />
+                <span>Reset Entire Leaderboard & History (All Clients)</span>
               </button>
               <button
-                onClick={handleClearAll}
-                className="btn btn-ghost w-full justify-start text-sm text-rose-500 hover:text-rose-600"
+                onClick={handleLoadDemo}
+                className="btn btn-ghost w-full justify-start text-xs text-amber-600 dark:text-amber-400"
               >
-                <Trash2 size={16} />
-                <span>Reset Entire Leaderboard & History</span>
+                <Sparkles size={14} />
+                <span>Load Sample Classroom Data (6 Students)</span>
               </button>
             </div>
 
             <div className="mt-4 flex justify-end">
-              <button className="btn btn-ghost" onClick={() => setManageModal(false)}>
+              <button className="btn btn-ghost" onClick={() => setAdminModal(false)}>
                 Done
               </button>
             </div>

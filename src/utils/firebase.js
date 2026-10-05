@@ -10,6 +10,8 @@ import {
   onSnapshot,
   setDoc,
   doc,
+  deleteDoc,
+  where,
 } from 'firebase/firestore';
 
 const CONFIG_STORAGE_KEY = 'classroom_firebase_config';
@@ -127,3 +129,41 @@ export function subscribeFirestoreAttempts(room = 'default', callback) {
     return null;
   }
 }
+
+/**
+ * Delete a specific attempt from Firestore
+ */
+export async function deleteAttemptFromFirestore(docId) {
+  const db = getDb();
+  if (!db || !docId) return false;
+  try {
+    await deleteDoc(doc(db, 'classroom_attempts', docId));
+    return true;
+  } catch (err) {
+    console.warn('Firestore deleteDoc error:', err);
+    return false;
+  }
+}
+
+/**
+ * Delete all attempts of a user from Firestore
+ */
+export async function deleteUserFromFirestore(userName, room = 'default') {
+  const db = getDb();
+  if (!db || !userName) return false;
+  try {
+    const col = collection(db, 'classroom_attempts');
+    const q = query(col, where('name', '==', userName.trim()));
+    const snapshot = await getDocs(q);
+    const promises = [];
+    snapshot.forEach((d) => {
+      promises.push(deleteDoc(d.ref));
+    });
+    await Promise.all(promises);
+    return true;
+  } catch (err) {
+    console.warn('Firestore deleteUser error:', err);
+    return false;
+  }
+}
+

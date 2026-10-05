@@ -90,6 +90,16 @@ export function deleteUser(name, users = {}, history = []) {
   return { users: nextUsers, history: nextHistory };
 }
 
+export function deleteRecord(recordId, history = [], users = {}) {
+  const nextHistory = history.filter((h) => h.id !== recordId);
+  save('history', nextHistory);
+
+  const nextUsers = loadUsers(nextHistory);
+  saveUsers(nextUsers);
+
+  return { history: nextHistory, users: nextUsers };
+}
+
 /** Compute aggregated leaderboard stats from history and user registry */
 export function getLeaderboard(history = [], users = {}, filter = { mode: 'all', unit: 'all' }, search = '') {
   const userMap = {};
