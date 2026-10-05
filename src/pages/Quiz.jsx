@@ -1,17 +1,38 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Flag, Eraser, Check, X, ListChecks, LogOut, Send } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Flag,
+  Eraser,
+  Check,
+  X,
+  ListChecks,
+  LogOut,
+  Send,
+  Lightbulb,
+  AlertCircle,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import QuestionNavigator from '../components/QuestionNavigator';
 import QuizTimer from '../components/QuizTimer';
 import { Modal, ProgressBar } from '../components/ui';
 import { LETTERS, optionText } from '../utils/quizUtils';
 import { answerKey } from '../data/questions';
+import { getExplanation } from '../data/explanations';
 
 export default function Quiz({ session, setSession, name, onSubmit, onReview, onExit }) {
   const { quiz, answers, marked, checked = {}, idx, practice, endAt, instantFeedback = true } = session;
   const [modal, setModal] = useState(null); // 'submit' | 'exit'
+  const [showAllOptions, setShowAllOptions] = useState(false);
   const q = quiz[idx];
   const set = useCallback((p) => setSession((s) => (s ? { ...s, ...p } : s)), [setSession]);
   const jump = useCallback((i) => { if (i >= 0 && i < quiz.length) set({ idx: i }); }, [quiz.length, set]);
+
+  useEffect(() => {
+    setShowAllOptions(false);
+  }, [idx]);
 
   const showFeedback = instantFeedback !== false;
   const done = (showFeedback || practice) && !!checked[q?.id];
@@ -164,30 +185,153 @@ export default function Quiz({ session, setSession, name, onSubmit, onReview, on
               })}
             </div>
 
-            {done && (
-              <div className={`animate-rise mt-5 rounded-xl border p-4 transition-all ${right ? 'border-emerald-600/40 bg-emerald-500/5' : 'border-rose-600/40 bg-rose-500/5'}`} role="status">
-                <div className="flex items-center gap-2 font-semibold">
-                  {right ? (
-                    <><Check size={18} className="text-emerald-600 dark:text-emerald-400" /><span className="text-emerald-700 dark:text-emerald-300">Correct Answer</span></>
-                  ) : (
-                    <><X size={18} className="text-rose-600 dark:text-rose-400" /><span className="text-rose-700 dark:text-rose-300">Incorrect Answer</span></>
-                  )}
+            {done && (() => {
+              const userSelected = answers[q.id];
+              const correctKey = answerKey[q.id];
+              const explanation = getExplanation(q.id, userSelected, correctKey);
+              const selectedOptObj = q.opts.find((o) => o.orig === userSelected);
+              const correctOptObj = q.opts.find((o) => o.orig === correctKey);
+              const selectedLetter = LETTERS[q.opts.findIndex((o) => o.orig === userSelected)];
+              const correctLetter = LETTERS[q.opts.findIndex((o) => o.orig === correctKey)];
+
+              return (
+                <div
+                  className={`animate-rise mt-5 rounded-2xl border p-5 shadow-sm transition-all ${
+                    right
+                      ? 'border-emerald-500/40 bg-emerald-500/5 dark:border-emerald-500/30 dark:bg-emerald-500/10'
+                      : 'border-rose-500/40 bg-rose-500/5 dark:border-rose-500/30 dark:bg-rose-500/10'
+                  }`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {/* Status header */}
+                  <div className="flex items-center gap-2.5 font-bold text-base">
+                    <div
+                      className={`grid h-7 w-7 place-items-center rounded-full text-white shadow-sm ${
+                        right ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-rose-600 dark:bg-rose-500'
+                      }`}
+                    >
+                      {right ? <Check size={16} className="stroke-[3]" /> : <X size={16} className="stroke-[3]" />}
+                    </div>
+                    <span className={right ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}>
+                      {right ? 'Correct Answer!' : 'Incorrect Answer'}
+                    </span>
+                  </div>
+
+                  {/* Why your selected option is correct / incorrect */}
+                  <div className="mt-4 space-y-3">
+                    {right ? (
+                      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm dark:bg-emerald-500/15">
+                        <div className="flex items-center gap-1.5 font-bold text-emerald-800 dark:text-emerald-200">
+                          <Lightbulb size={16} className="text-emerald-600 dark:text-emerald-400" />
+                          <span>Why your choice (Option {selectedLetter}: {selectedOptObj?.text}) is correct:</span>
+                        </div>
+                        <p className="mt-1.5 text-slate-700 dark:text-slate-200 leading-relaxed text-sm">
+                          {explanation.selectedWhy}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 text-sm dark:bg-rose-500/15">
+                          <div className="flex items-center gap-1.5 font-bold text-rose-800 dark:text-rose-200">
+                            <AlertCircle size={16} className="text-rose-600 dark:text-rose-400" />
+                            <span>Why your choice (Option {selectedLetter}: {selectedOptObj?.text}) is incorrect:</span>
+                          </div>
+                          <p className="mt-1.5 text-slate-700 dark:text-slate-200 leading-relaxed text-sm">
+                            {explanation.selectedWhy}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm dark:bg-emerald-500/15">
+                          <div className="flex items-center gap-1.5 font-bold text-emerald-800 dark:text-emerald-200">
+                            <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                            <span>Correct Answer: Option {correctLetter} ({correctOptObj?.text})</span>
+                          </div>
+                          <p className="mt-1.5 text-slate-700 dark:text-slate-200 leading-relaxed text-sm">
+                            {explanation.correctWhy}
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Core Concept Summary */}
+                    {explanation.summary && (
+                      <div className="rounded-xl border border-slate-200/80 bg-white/80 p-3.5 text-xs dark:border-white/10 dark:bg-navy-900/80">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
+                          <BookOpen size={14} className="text-blue-600 dark:text-cyan-400" />
+                          <span className="uppercase tracking-wider">Concept Summary</span>
+                        </div>
+                        <p className="mt-1 text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {explanation.summary}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* All Options Breakdown Toggle */}
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllOptions(!showAllOptions)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-cyan-400 dark:hover:text-cyan-300"
+                      >
+                        {showAllOptions ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        <span>{showAllOptions ? 'Hide' : 'Review'} detailed explanation for all 4 options</span>
+                      </button>
+
+                      {showAllOptions && (
+                        <div className="animate-rise mt-3 space-y-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-white/10 dark:bg-navy-900/50">
+                          {q.opts.map((opt, optIndex) => {
+                            const optLetter = LETTERS[optIndex];
+                            const isOptCorrect = opt.orig === correctKey;
+                            const isOptSelected = opt.orig === userSelected;
+                            const optExp = explanation.allOptions[opt.orig];
+
+                            return (
+                              <div
+                                key={opt.orig}
+                                className={`rounded-lg p-2.5 ${
+                                  isOptCorrect
+                                    ? 'border border-emerald-500/40 bg-emerald-500/10'
+                                    : isOptSelected
+                                    ? 'border border-rose-500/40 bg-rose-500/10'
+                                    : 'border border-slate-200/60 bg-slate-50/50 dark:border-white/5 dark:bg-white/5'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 font-semibold">
+                                  <span className="font-mono">Option {optLetter}: {opt.text}</span>
+                                  {isOptCorrect && (
+                                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                                      Correct
+                                    </span>
+                                  )}
+                                  {isOptSelected && !isOptCorrect && (
+                                    <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
+                                      Your choice
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-slate-600 dark:text-slate-300 leading-relaxed">
+                                  {optExp}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-slate-200/60 pt-3 text-xs text-slate-500 dark:border-white/10">
+                    <span>In-depth explanation verified with answer key</span>
+                    {!isLast && (
+                      <span className="font-medium text-blue-600 dark:text-cyan-400">
+                        Click Next or press Enter →
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                  {right ? (
-                    <>Well done! Option <b>{LETTERS[q.opts.findIndex((o) => o.orig === answerKey[q.id])]}</b> is correct.</>
-                  ) : (
-                    <>
-                      The correct answer is <b>{LETTERS[q.opts.findIndex((o) => o.orig === answerKey[q.id])]}: {optionText(q.id, answerKey[q.id])}</b>.
-                    </>
-                  )}
-                </p>
-                <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                  <span>Auto-generated feedback</span>
-                  {!isLast && <span className="text-blue-600 dark:text-cyan-400 font-medium">Click Next or press Enter →</span>}
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </section>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">

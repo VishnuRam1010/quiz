@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Check, X, Minus, RotateCcw, History as HistoryIcon, Trophy, Target, Clock } from 'lucide-react';
+import { Check, X, Minus, RotateCcw, History as HistoryIcon, Trophy, Target, Clock, Lightbulb } from 'lucide-react';
 import { Ring } from '../components/ui';
 import QuestionNavigator from '../components/QuestionNavigator';
 import { evaluate, fmtTime, fmtDate, optionText, shownLetter } from '../utils/quizUtils';
+import { getExplanation } from '../data/explanations';
 
 const STATUS = {
   correct: { label: 'CORRECT', Icon: Check, cls: 'border-emerald-600/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300' },
@@ -105,6 +106,20 @@ export default function Results({ record, onRetake, onHistory, onLeaderboard }) 
                   <div><dt className="text-xs font-semibold uppercase tracking-wider opacity-60">Your answer</dt><dd>{r.picked ? <><b>{shownLetter(r, r.picked)}</b> · {optionText(r.id, r.picked)}</> : 'Not answered'}</dd></div>
                   <div><dt className="text-xs font-semibold uppercase tracking-wider opacity-60">Correct answer</dt><dd><b>{shownLetter(r, r.correctOrig)}</b> · {optionText(r.id, r.correctOrig)}</dd></div>
                 </dl>
+                {(() => {
+                  const exp = getExplanation(r.id, r.picked || r.correctOrig, r.correctOrig);
+                  return (
+                    <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-white/10 text-xs">
+                      <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white">
+                        <Lightbulb size={13} className="text-amber-500" />
+                        <span>Explanation:</span>
+                      </div>
+                      <p className="mt-1 leading-relaxed text-slate-700 dark:text-slate-300">
+                        {r.status === 'correct' ? exp.selectedWhy : `${exp.selectedWhy} ${exp.correctWhy}`}
+                      </p>
+                    </div>
+                  );
+                })()}
               </li>
             );
           })}
