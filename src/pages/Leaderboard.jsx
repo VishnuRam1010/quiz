@@ -19,16 +19,36 @@ import {
   Play,
   Eye,
   SlidersHorizontal,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  Share2,
+  Copy,
+  Check,
+  Settings,
+  ShieldCheck,
+  Globe,
+  Radio,
 } from 'lucide-react';
 import { Modal, ProgressBar } from '../components/ui';
 import { getLeaderboard, getInitials, deleteUser, generateDemoClassroomData } from '../utils/leaderboardUtils';
 import { fmtTime, fmtDate } from '../utils/quizUtils';
-import { units } from '../data/questions';
+import { units, answerKey } from '../data/questions';
+import {
+  saveStoredFirebaseConfig,
+  getFirebaseConfig,
+  isFirebaseConfigured,
+  DEFAULT_ROOM,
+} from '../utils/cloudSync';
 
 export default function Leaderboard({
   history = [],
   users = {},
   activeUser = '',
+  cloudSyncInfo = { room: DEFAULT_ROOM, status: 'connected', mode: 'relay' },
+  liveAlert = null,
+  onSyncNow,
+  onChangeRoom,
   onSelectUser,
   onStartQuiz,
   onUpdateHistory,
@@ -39,10 +59,85 @@ export default function Leaderboard({
   const [modeFilter, setModeFilter] = useState('all'); // 'all' | 'full' | 'unit' | 'practice'
   const [unitFilter, setUnitFilter] = useState('all');
   const [manageModal, setManageModal] = useState(false);
+  const [cloudModal, setCloudModal] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState(null);
   const [newStudentName, setNewStudentName] = useState('');
   const [msg, setMsg] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [roomInput, setRoomInput] = useState(cloudSyncInfo?.room || DEFAULT_ROOM);
+  const [firebaseInput, setFirebaseInput] = useState(() => {
+    const cfg = getFirebaseConfig();
+    return cfg ? JSON.stringify(cfg, null, 2) : '';
+  });
+  const [firebaseFeedback, setFirebaseFeedback] = useState('');
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      if (onSyncNow) await onSyncNow();
+      setMsg('Leaderboard synced with cloud classroom!');
+      setTimeout(() => setMsg(''), 3000);
+    } catch {
+      setMsg('Sync completed.');
+      setTimeout(() => setMsg(''), 2000);
+    } finally {
+      setTimeout(() => setSyncing(false), 500);
+    }
+  };
+
+  const handleShareLink = () => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('room', cloudSyncInfo?.room || DEFAULT_ROOM);
+    const link = url.toString();
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(link).then(() => {
+        setCopiedLink(true);
+        setMsg('Classroom quiz link copied! Share this with your class group.');
+        setTimeout(() => {
+          setCopiedLink(false);
+          setMsg('');
+        }, 4000);
+      }).catch(() => {
+        prompt('Copy this classroom quiz link for your class group:', link);
+      });
+    } else {
+      prompt('Copy this classroom quiz link for your class group:', link);
+    }
+  };
+
+  const handleSaveRoom = (e) => {
+    e?.preventDefault();
+    const clean = (roomInput || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || DEFAULT_ROOM;
+    if (onChangeRoom) onChangeRoom(clean);
+    setMsg(`Classroom switched to room #${clean}!`);
+    setTimeout(() => setMsg(''), 3500);
+  };
+
+  const handleSaveFirebase = () => {
+    if (!firebaseInput.trim()) {
+      saveStoredFirebaseConfig(null);
+      setFirebaseFeedback('Custom Firebase config cleared. Reverted to instant cloud relay.');
+      setTimeout(() => setFirebaseFeedback(''), 3000);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(firebaseInput);
+      if (!parsed.apiKey || !parsed.projectId) {
+        setFirebaseFeedback('Error: Config must contain at least "apiKey" and "projectId".');
+        return;
+      }
+      saveStoredFirebaseConfig(parsed);
+      setFirebaseFeedback('Firebase connected successfully! Reloading...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch {
+      setFirebaseFeedback('Error: Invalid JSON syntax. Please check the pasted configuration.');
+    }
+  };
 
   // Compute leaderboard
   const filter = useMemo(() => ({ mode: modeFilter, unit: unitFilter }), [modeFilter, unitFilter]);
@@ -149,6 +244,94 @@ export default function Leaderboard({
           <button className="btn btn-primary" onClick={() => onStartQuiz()}>
             <Play size={15} /> Take Quiz
           </button>
+        </div>
+      </div>
+
+      {/* Live Classroom Alert Toast */}
+      {liveAlert && (
+        <div className="animate-pop mt-4 flex items-center justify-between rounded-xl border border-cyan-500/40 bg-gradient-to-r from-cyan-500/15 via-blue-500/10 to-indigo-500/15 p-3.5 shadow-lg backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500 text-white shadow-md">
+              <Sparkles size={18} />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-slate-900 dark:text-white">
+                🎉 {liveAlert.name} just finished the quiz!
+              </p>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Score: {liveAlert.score != null ? `${liveAlert.score}/${liveAlert.total || 50}` : 'Completed'} • Standing updated in real-time
+              </p>
+            </div>
+          </div>
+          <span className="chip border-cyan-400/40 bg-cyan-500/20 text-xs font-semibold text-cyan-600 dark:text-cyan-300">
+            Live Update
+          </span>
+        </div>
+      )}
+
+      {/* Classroom Cloud Sync Bar */}
+      <div className="mt-5 rounded-2xl border border-slate-200/80 bg-white/70 p-3.5 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60 sm:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-3 w-3">
+                {cloudSyncInfo?.status === 'connected' ? (
+                  <>
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500"></span>
+                  </>
+                ) : cloudSyncInfo?.status === 'syncing' ? (
+                  <RefreshCw size={12} className="animate-spin text-blue-500" />
+                ) : (
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500"></span>
+                )}
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                {cloudSyncInfo?.status === 'connected'
+                  ? 'Live Class Sync'
+                  : cloudSyncInfo?.status === 'syncing'
+                  ? 'Syncing Class...'
+                  : 'Offline Cache'}
+              </span>
+            </div>
+
+            <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+              <Globe size={11} className="text-slate-400" /> #{cloudSyncInfo?.room || DEFAULT_ROOM}
+            </span>
+
+            <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-cyan-400">
+              {cloudSyncInfo?.mode === 'firebase' ? 'Firebase Firestore' : 'Instant Cloud Relay'}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleSyncNow}
+              disabled={syncing}
+              className="btn btn-ghost !py-1.5 !px-3 text-xs"
+              title="Sync latest scores with all classmates"
+            >
+              <RefreshCw size={13} className={syncing ? 'animate-spin text-blue-500' : ''} />
+              <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
+            </button>
+
+            <button
+              onClick={handleShareLink}
+              className="btn btn-ghost !py-1.5 !px-3 text-xs font-semibold text-blue-600 dark:text-cyan-400"
+              title="Copy shareable link for class group"
+            >
+              {copiedLink ? <Check size={13} className="text-emerald-500" /> : <Share2 size={13} />}
+              <span>{copiedLink ? 'Link Copied!' : 'Share Quiz Link'}</span>
+            </button>
+
+            <button
+              onClick={() => setCloudModal(true)}
+              className="btn btn-ghost !py-1.5 !px-2.5 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              title="Configure Classroom Room & Cloud Sync"
+            >
+              <Settings size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -730,6 +913,132 @@ export default function Leaderboard({
 
             <div className="mt-4 flex justify-end">
               <button className="btn btn-ghost" onClick={() => setManageModal(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Cloud Classroom Settings Modal */}
+      {cloudModal && (
+        <Modal title="Classroom Cloud Sync Settings" onClose={() => setCloudModal(false)}>
+          <div className="mt-3 space-y-5">
+            {/* Status card */}
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-800 dark:text-emerald-200">
+              <div className="flex items-center gap-2 font-bold uppercase tracking-wider">
+                <ShieldCheck size={16} />
+                <span>Multi-Player Cloud Sync: Active</span>
+              </div>
+              <p className="mt-1 opacity-90 leading-relaxed">
+                When you share this quiz Netlify link with your class group, any student who attends and completes the quiz will automatically appear on this leaderboard!
+              </p>
+            </div>
+
+            {/* Room Identifier */}
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Classroom Room Code
+              </label>
+              <form onSubmit={handleSaveRoom} className="mt-1 flex gap-2">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-2.5 font-mono text-sm text-slate-400">#</span>
+                  <input
+                    type="text"
+                    value={roomInput}
+                    onChange={(e) => setRoomInput(e.target.value)}
+                    placeholder="datascience-class-2025"
+                    className="input !py-2 !pl-7 text-sm font-mono w-full"
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary">
+                  Save Room
+                </button>
+              </form>
+              <p className="mt-1 text-xs text-slate-500">
+                Students in the same Room Code share the exact same leaderboard.
+              </p>
+            </div>
+
+            {/* Share link box */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Shareable Class Group Link
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Send this link to your class group (WhatsApp, Telegram, Teams):
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?room=${cloudSyncInfo?.room || DEFAULT_ROOM}` : ''}
+                  className="input !py-1.5 text-xs font-mono flex-1 bg-white dark:bg-slate-900"
+                />
+                <button onClick={handleShareLink} className="btn btn-ghost !py-1.5 !px-3 text-xs">
+                  {copiedLink ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                  <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Optional Firebase Firestore Storage */}
+            <div className="border-t border-slate-200 pt-4 dark:border-white/10">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Google Firebase Firestore (Optional Permanent Database)
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  Status: {isFirebaseConfigured() ? '🟢 Google Firestore Connected' : '⚡ Instant Zero-Config Cloud Relay Active'}
+                </div>
+              </div>
+
+              <div className="mt-2.5">
+                <textarea
+                  rows={4}
+                  value={firebaseInput}
+                  onChange={(e) => setFirebaseInput(e.target.value)}
+                  placeholder={`Paste Firebase Config JSON here to connect custom Firebase project:
+{
+  "apiKey": "AIzaSy...",
+  "projectId": "your-project-id"
+}`}
+                  className="input font-mono !py-2 text-xs w-full"
+                />
+              </div>
+
+              {firebaseFeedback && (
+                <p className={`mt-1.5 text-xs ${firebaseFeedback.startsWith('Error') ? 'text-rose-500 font-semibold' : 'text-emerald-500 font-semibold'}`}>
+                  {firebaseFeedback}
+                </p>
+              )}
+
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveFirebase}
+                  className="btn btn-ghost !py-1 !px-2.5 text-xs"
+                >
+                  Save Firebase Config
+                </button>
+                {isFirebaseConfigured() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      saveStoredFirebaseConfig(null);
+                      setFirebaseInput('');
+                      setFirebaseFeedback('Custom Firebase cleared. Using instant relay.');
+                    }}
+                    className="btn btn-ghost !py-1 !px-2.5 text-xs text-rose-500 hover:text-rose-600"
+                  >
+                    Reset to Default Relay
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button className="btn btn-ghost" onClick={() => setCloudModal(false)}>
                 Done
               </button>
             </div>

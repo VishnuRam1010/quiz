@@ -31,14 +31,23 @@ function HeroVisual() {
   );
 }
 
-export default function Home({ onStart, onUnit, onLeaderboard }) {
+export default function Home({ onStart, onUnit, onLeaderboard, cloudSyncInfo }) {
   return (
     <div className="animate-rise">
       <section className="relative overflow-hidden">
         <div className="grid-bg absolute inset-0" aria-hidden="true" />
         <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-4 py-14 sm:px-6 lg:grid-cols-2 lg:py-24">
           <div>
-            <span className="chip border-cyan-400/40 text-blue-700 dark:text-cyan-300">DATA SCIENCE • CLASSROOM ASSESSMENT</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="chip border-cyan-400/40 text-blue-700 dark:text-cyan-300">DATA SCIENCE • CLASSROOM ASSESSMENT</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                </span>
+                Class Room: #{cloudSyncInfo?.room || 'datascience-class-2025'}
+              </span>
+            </div>
             <h1 className="mt-5 text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl">DATA SCIENCE<br /><span className="text-blue-600 dark:text-cyan-400">CLASSROOM QUIZ</span></h1>
             <p className="mt-5 max-w-xl text-base text-slate-600 dark:text-slate-300 sm:text-lg">Test your understanding of Data Science, Big Data, NumPy, Pandas, Data Manipulation, and Visualization.</p>
             <div className="mt-7 flex flex-wrap gap-3">

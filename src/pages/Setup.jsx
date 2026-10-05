@@ -16,7 +16,7 @@ function Toggle({ on, onChange, label, icon: Icon }) {
   );
 }
 
-export default function Setup({ name, setName, users = {}, settings, setSettings, onStart, onBack }) {
+export default function Setup({ name, setName, users = {}, settings, setSettings, cloudSyncInfo, onStart, onBack }) {
   const [err, setErr] = useState('');
   const userList = Object.values(users);
   const set = (p) => setSettings((s) => ({ ...s, ...p }));
@@ -33,10 +33,22 @@ export default function Setup({ name, setName, users = {}, settings, setSettings
   };
   return (
     <div className="mx-auto max-w-4xl animate-rise px-4 py-10 sm:px-6">
-      <p className="eyebrow">Quiz setup</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="eyebrow">Quiz setup</p>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+          </span>
+          Classroom: #{cloudSyncInfo?.room || 'datascience-class-2025'} (Live Sync)
+        </span>
+      </div>
       <h1 className="mt-1 text-3xl font-bold">Set up your quiz</h1>
       <div className="card mt-6 p-5 sm:p-6">
-        <label htmlFor="name" className="text-sm font-semibold">Enter your name / student profile</label>
+        <div className="flex items-center justify-between">
+          <label htmlFor="name" className="text-sm font-semibold">Enter your name / student profile</label>
+          <span className="text-xs text-slate-500">Will be shown on class leaderboard</span>
+        </div>
         <input id="name" className="input mt-2" value={name} maxLength={40} autoComplete="given-name" placeholder="e.g. Vishnu"
           onChange={(e) => { setName(e.target.value); setErr(''); }} aria-invalid={!!err} aria-describedby={err ? 'name-err' : undefined} />
         {err && <p id="name-err" role="alert" className="mt-2 text-sm text-rose-500">{err}</p>}

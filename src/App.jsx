@@ -11,6 +11,14 @@ import About from './pages/About';
 import { load, save, remove } from './utils/storage';
 import { buildQuiz, itemsFromSession } from './utils/quizUtils';
 import { loadUsers, saveUsers, registerUser } from './utils/leaderboardUtils';
+import {
+  initCloudSync,
+  publishAttemptToCloud,
+  mergeRecords,
+  fetchCloudRelayRecords,
+  getSyncInfo,
+  setRoomId,
+} from './utils/cloudSync';
 
 const DEFAULTS = { mode: 'full', unit: 'all', randomQ: false, randomO: false, timerOn: true, minutes: 30, instantFeedback: true };
 
@@ -23,6 +31,45 @@ export default function App() {
   const [users, setUsers] = useState(() => loadUsers(load('history', [])));
   const [result, setResult] = useState(() => load('last', null));
   const [session, setSession] = useState(null);
+  const [cloudSyncInfo, setCloudSyncInfo] = useState(() => getSyncInfo());
+  const [liveAlert, setLiveAlert] = useState(null);
+
+  // Check URL params for quick class link joining (e.g. ?room=ds-class&name=Vishnu)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search);
+      const urlName = p.get('name');
+      const urlRoom = p.get('room');
+      if (urlName && urlName.trim()) setName(urlName.trim());
+      if (urlRoom && urlRoom.trim()) {
+        setRoomId(urlRoom.trim());
+        setCloudSyncInfo(getSyncInfo());
+      }
+    }
+  }, []);
+
+  // Connect to live classroom cloud synchronization
+  useEffect(() => {
+    const unsub = initCloudSync(
+      ({ status, room, mode, records }) => {
+        setCloudSyncInfo({ status, room, mode });
+        if (Array.isArray(records) && records.length) {
+          setHistory((prev) => {
+            const merged = mergeRecords(prev, records);
+            setUsers(loadUsers(merged));
+            return merged;
+          });
+        }
+      },
+      (newRec) => {
+        if (newRec?.name && newRec.name.toLowerCase() !== name.trim().toLowerCase()) {
+          setLiveAlert(newRec);
+          setTimeout(() => setLiveAlert(null), 8000);
+        }
+      }
+    );
+    return () => unsub();
+  }, [name]);
 
   useEffect(() => { save('name', name); }, [name]);
   useEffect(() => { save('settings', settings); }, [settings]);
@@ -74,13 +121,27 @@ export default function App() {
   const submit = useCallback((s) => {
     if (!s) return;
     const studentName = name.trim() || 'Student';
-    const rec = { id: `${Date.now()}`, name: studentName, date: new Date().toISOString(), mode: s.mode, unit: s.unit, seconds: Math.round((Date.now() - s.startedAt) / 1000), items: itemsFromSession(s.quiz, s.answers) };
-    setHistory((h) => [rec, ...h].slice(0, 100));
-    setUsers((prev) => registerUser(studentName, prev));
+    const rec = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: studentName,
+      date: new Date().toISOString(),
+      mode: s.mode,
+      unit: s.unit,
+      seconds: Math.round((Date.now() - s.startedAt) / 1000),
+      items: itemsFromSession(s.quiz, s.answers),
+    };
+    setHistory((h) => {
+      const merged = mergeRecords([rec], h);
+      setUsers(loadUsers(merged));
+      return merged;
+    });
     setResult(rec);
     save('last', rec);
     setSession(null);
     go('results');
+
+    // Publish to cloud classroom so all classmates on the leaderboard see this immediately
+    publishAttemptToCloud(rec);
   }, [name, go]);
 
   const retake = (rec) => {
@@ -96,11 +157,39 @@ export default function App() {
   if (view === 'quiz' && session) page = <Quiz session={session} setSession={setSession} name={name} onSubmit={submit} onReview={() => go('review')} onExit={() => { setSession(null); go('home'); }} />;
   else if (view === 'review' && session) page = <Review session={session} onJump={(i) => { setSession((s) => ({ ...s, idx: i })); go('quiz'); }} onSubmit={submit} onBack={() => go('quiz')} />;
   else if (view === 'results' && result) page = <Results key={result.id} record={result} onRetake={retake} onHistory={() => go('history')} onLeaderboard={() => go('leaderboard')} />;
-  else if (view === 'setup') page = <Setup name={name} setName={setName} users={users} settings={settings} setSettings={setSettings} onStart={() => start()} onBack={() => go('home')} />;
-  else if (view === 'leaderboard') page = <Leaderboard history={history} users={users} activeUser={name} onSelectUser={(uName) => setName(uName)} onStartQuiz={() => openSetup()} onUpdateHistory={setHistory} onUpdateUsers={setUsers} onViewRecord={(h) => { setResult(h); go('results'); }} />;
+  else if (view === 'setup') page = <Setup name={name} setName={setName} users={users} settings={settings} setSettings={setSettings} cloudSyncInfo={cloudSyncInfo} onStart={() => start()} onBack={() => go('home')} />;
+  else if (view === 'leaderboard') page = (
+    <Leaderboard
+      history={history}
+      users={users}
+      activeUser={name}
+      cloudSyncInfo={cloudSyncInfo}
+      liveAlert={liveAlert}
+      onSyncNow={async () => {
+        const records = await fetchCloudRelayRecords();
+        if (records && records.length) {
+          setHistory((prev) => {
+            const merged = mergeRecords(prev, records);
+            setUsers(loadUsers(merged));
+            return merged;
+          });
+        }
+        return records;
+      }}
+      onChangeRoom={(newRoom) => {
+        setRoomId(newRoom);
+        setCloudSyncInfo(getSyncInfo());
+      }}
+      onSelectUser={(uName) => setName(uName)}
+      onStartQuiz={() => openSetup()}
+      onUpdateHistory={setHistory}
+      onUpdateUsers={setUsers}
+      onViewRecord={(h) => { setResult(h); go('results'); }}
+    />
+  );
   else if (view === 'history') page = <History history={history} activeUser={name} onStart={() => openSetup()} onClear={clearHistory} onView={(h) => { setResult(h); go('results'); }} />;
   else if (view === 'about') page = <About />;
-  else page = <Home onStart={() => openSetup({ mode: 'full', unit: 'all' })} onUnit={(u) => openSetup(u === 'all' ? { mode: 'full', unit: 'all' } : { mode: settings.mode === 'practice' ? 'practice' : 'unit', unit: u })} onLeaderboard={() => go('leaderboard')} />;
+  else page = <Home onStart={() => openSetup({ mode: 'full', unit: 'all' })} onUnit={(u) => openSetup(u === 'all' ? { mode: 'full', unit: 'all' } : { mode: settings.mode === 'practice' ? 'practice' : 'unit', unit: u })} onLeaderboard={() => go('leaderboard')} cloudSyncInfo={cloudSyncInfo} />;
 
   return (
     <div className="flex min-h-screen flex-col">
